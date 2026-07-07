@@ -1,2 +1,2 @@
 ## JecHacks Hackathon
-Henry Zhao and Austin Luo
+Henry Zhao and Austin Luo 2026
