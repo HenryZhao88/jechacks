@@ -20,16 +20,12 @@ const width = 640
 let model
 let savedBackground
 let currentPeople = []
-let selectedPoint
-let selectedColors
-let ownerMask
-let ownerAnchor
-let ownerSize
+let allowedPeople = []
+let currentAssignments = []
 let removalHold
 let lastLightMap
 let backgroundCandidates
 let backgroundCandidateAge
-let trackingLostFrames = 0
 let running = false
 
 function getCenter(person) {
@@ -64,36 +60,36 @@ function countMask(mask) {
   return count
 }
 
-function getOwnerMask(person, othersNearby) {
+function getOwnerMask(person, entry, othersNearby) {
   const currentAnchor = getAnchor(person)
   const currentSize = countMask(person.data)
 
-  if (!ownerMask || !ownerAnchor || !ownerSize) {
-    ownerMask = new Uint8Array(person.data)
-    ownerAnchor = currentAnchor
-    ownerSize = currentSize
+  if (!entry.ownerMask || !entry.ownerAnchor || !entry.ownerSize) {
+    entry.ownerMask = new Uint8Array(person.data)
+    entry.ownerAnchor = currentAnchor
+    entry.ownerSize = currentSize
     return person.data
   }
 
-  if (!othersNearby || currentSize < ownerSize * 1.35) {
-    ownerMask = new Uint8Array(person.data)
-    ownerAnchor = currentAnchor
-    ownerSize = ownerSize * 0.9 + currentSize * 0.1
+  if (!othersNearby || currentSize < entry.ownerSize * 1.35) {
+    entry.ownerMask = new Uint8Array(person.data)
+    entry.ownerAnchor = currentAnchor
+    entry.ownerSize = entry.ownerSize * 0.9 + currentSize * 0.1
     return person.data
   }
 
-  ownerSize = ownerSize * 0.98 + currentSize * 0.02
+  entry.ownerSize = entry.ownerSize * 0.98 + currentSize * 0.02
 
   const shiftedMask = new Uint8Array(person.data.length)
-  const moveX = Math.round(currentAnchor.x - ownerAnchor.x)
-  const moveY = Math.round(currentAnchor.y - ownerAnchor.y)
+  const moveX = Math.round(currentAnchor.x - entry.ownerAnchor.x)
+  const moveY = Math.round(currentAnchor.y - entry.ownerAnchor.y)
   const offsets = [
     [0, 0], [-12, 0], [12, 0], [0, -12], [0, 12],
     [-12, -12], [12, -12], [-12, 12], [12, 12],
   ]
 
-  for (let pixel = 0; pixel < ownerMask.length; pixel++) {
-    if (!ownerMask[pixel]) continue
+  for (let pixel = 0; pixel < entry.ownerMask.length; pixel++) {
+    if (!entry.ownerMask[pixel]) continue
     const oldX = pixel % width
     const oldY = Math.floor(pixel / width)
 
@@ -139,68 +135,92 @@ function colorMatch(first, second) {
   return match
 }
 
-function findSelectedPerson(people, frame) {
-  if (!selectedPoint) return -1
+function matchAllowedPeople(people, frame) {
+  const assignments = new Array(people.length).fill(null)
+  if (!allowedPeople.length || !people.length) {
+    allowedPeople.forEach((entry) => entry.lostFrames++)
+    return assignments
+  }
 
-  let bestIndex = -1
-  let bestScore = -1
-  let bestColors
-  let bestMatch = 0
+  const personColors = people.map((person) => getColors(person, frame))
+  const personAnchors = people.map((person) => getAnchor(person))
+  const candidates = []
 
-  people.forEach((person, index) => {
-    const center = getAnchor(person)
-    if (!center) return
+  allowedPeople.forEach((entry) => {
+    people.forEach((person, index) => {
+      const anchor = personAnchors[index]
+      if (!anchor) return
 
-    const distance = Math.hypot(center.x - selectedPoint.x, center.y - selectedPoint.y)
-    const colors = getColors(person, frame)
-    const match = selectedColors ? colorMatch(selectedColors, colors) : 1
-    const score = match - Math.min(distance / width, 1) * 0.25
+      const match = colorMatch(entry.colors, personColors[index])
+      const recentlySeen = entry.lostFrames <= 15
 
-    if (score > bestScore) {
-      bestIndex = index
-      bestScore = score
-      bestColors = colors
-      bestMatch = match
+      if (recentlySeen) {
+        const distance = Math.hypot(anchor.x - entry.point.x, anchor.y - entry.point.y)
+        const score = match - Math.min(distance / width, 1) * 0.3
+        if (match >= 0.45 && score >= 0.35) candidates.push({ entry, index, score, match })
+      } else if (match >= 0.6) {
+        candidates.push({ entry, index, score: match, match })
+      }
+    })
+  })
+
+  candidates.sort((first, second) => second.score - first.score)
+  const usedEntries = new Set()
+
+  candidates.forEach((candidate) => {
+    if (usedEntries.has(candidate.entry) || assignments[candidate.index]) return
+    usedEntries.add(candidate.entry)
+    assignments[candidate.index] = candidate.entry
+    candidate.entry.point = personAnchors[candidate.index]
+    candidate.entry.lostFrames = 0
+
+    if (candidate.match > 0.7) {
+      candidate.entry.colors = candidate.entry.colors.map((amount, index) => {
+        return amount * 0.95 + personColors[candidate.index][index] * 0.05
+      })
     }
   })
 
-  const neededMatch = trackingLostFrames ? 0.6 : 0.7
-  if (bestIndex === -1 || bestMatch < neededMatch) {
-    trackingLostFrames++
-    return -1
-  }
+  allowedPeople.forEach((entry) => {
+    if (!usedEntries.has(entry)) entry.lostFrames++
+  })
 
-  selectedPoint = getAnchor(people[bestIndex])
-  trackingLostFrames = 0
-
-  if (bestMatch > 0.7) {
-    selectedColors = selectedColors.map((amount, index) => {
-      return amount * 0.95 + bestColors[index] * 0.05
-    })
-  }
-
-  return bestIndex
+  return assignments
 }
 
-function makeRemovalMask(people, selectedIndex) {
+function makeRemovalMask(people, assignments) {
   const maskContext = maskCanvas.getContext('2d')
   const blurredContext = blurredMaskCanvas.getContext('2d')
   const selectedContext = selectedMaskCanvas.getContext('2d')
   const protectedContext = protectedMaskCanvas.getContext('2d')
   const mask = maskContext.createImageData(maskCanvas.width, maskCanvas.height)
   const selectedMask = selectedContext.createImageData(selectedMaskCanvas.width, selectedMaskCanvas.height)
-  const selectedPerson = people[selectedIndex]
-  const protectedOwner = selectedPerson ? getOwnerMask(selectedPerson, people.length > 1) : null
+  const matchedCount = assignments.filter(Boolean).length
+  const othersNearby = people.length > matchedCount
 
   people.forEach((person, index) => {
+    const entry = assignments[index]
+    const protectedOwner = entry ? getOwnerMask(person, entry, othersNearby) : null
+
     for (let pixel = 0; pixel < person.data.length; pixel++) {
       if (!person.data[pixel]) continue
-      if (index === selectedIndex && protectedOwner[pixel]) continue
+      if (protectedOwner?.[pixel]) continue
       const color = pixel * 4
       mask.data[color] = 255
       mask.data[color + 1] = 255
       mask.data[color + 2] = 255
       mask.data[color + 3] = 255
+    }
+
+    if (!protectedOwner) return
+
+    for (let pixel = 0; pixel < protectedOwner.length; pixel++) {
+      if (!protectedOwner[pixel]) continue
+      const color = pixel * 4
+      selectedMask.data[color] = 255
+      selectedMask.data[color + 1] = 255
+      selectedMask.data[color + 2] = 255
+      selectedMask.data[color + 3] = 255
     }
   })
 
@@ -215,17 +235,6 @@ function makeRemovalMask(people, selectedIndex) {
       mask.data[alpha - 1] = 255
       mask.data[alpha] = 255
       removalHold[pixel]--
-    }
-  }
-
-  if (protectedOwner) {
-    for (let pixel = 0; pixel < protectedOwner.length; pixel++) {
-      if (!protectedOwner[pixel]) continue
-      const color = pixel * 4
-      selectedMask.data[color] = 255
-      selectedMask.data[color + 1] = 255
-      selectedMask.data[color + 2] = 255
-      selectedMask.data[color + 3] = 255
     }
   }
 
@@ -471,12 +480,10 @@ async function processFrame() {
 
     const liveFrame = inputContext.getImageData(0, 0, inputCanvas.width, inputCanvas.height)
     const result = new ImageData(new Uint8ClampedArray(liveFrame.data), liveFrame.width, liveFrame.height)
-    const selectedIndex = findSelectedPerson(currentPeople, liveFrame)
+    currentAssignments = matchAllowedPeople(currentPeople, liveFrame)
 
-    const removeEveryone = selectedPoint && trackingLostFrames > 20
-
-    if (savedBackground && (selectedIndex !== -1 || removeEveryone)) {
-      const masks = makeRemovalMask(currentPeople, selectedIndex)
+    if (savedBackground && allowedPeople.length > 0) {
+      const masks = makeRemovalMask(currentPeople, currentAssignments)
       const mask = masks.removal
 
       for (let pixel = 0; pixel < mask.width * mask.height; pixel++) {
@@ -614,7 +621,7 @@ async function captureBackground() {
   lastLightMap = undefined
   backgroundButton.disabled = false
   resetButton.disabled = false
-  statusText.textContent = 'Background saved. Step back in and click yourself.'
+  statusText.textContent = 'Background saved. Step back in and click each person allowed on camera.'
 }
 
 function selectPerson(event) {
@@ -624,32 +631,46 @@ function selectPerson(event) {
   const shownX = ((event.clientX - box.left) / box.width) * width
   const x = Math.floor(width - shownX)
   const y = Math.floor(((event.clientY - box.top) / box.height) * inputCanvas.height)
-  const person = currentPeople.find((item) => item.data[y * item.width + x])
+  const personIndex = currentPeople.findIndex((item) => item.data[y * item.width + x])
 
-  if (!person) {
-    statusText.textContent = 'No person found there. Try clicking your body.'
+  if (personIndex === -1) {
+    statusText.textContent = 'No person found there. Try clicking their body.'
     return
   }
 
-  selectedPoint = getAnchor(person) || { x, y }
+  const existing = currentAssignments[personIndex]
+
+  if (existing) {
+    allowedPeople = allowedPeople.filter((entry) => entry !== existing)
+    currentAssignments[personIndex] = null
+    statusText.textContent = allowedPeople.length
+      ? `Removed them. ${allowedPeople.length} allowed on camera`
+      : 'Nobody selected — showing everyone. Click people to allow them.'
+    return
+  }
+
+  const person = currentPeople[personIndex]
+  const anchor = getAnchor(person) || { x, y }
   const frame = inputCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, inputCanvas.width, inputCanvas.height)
-  selectedColors = getColors(person, frame)
-  ownerMask = new Uint8Array(person.data)
-  ownerAnchor = selectedPoint
-  ownerSize = countMask(person.data)
-  trackingLostFrames = 0
+  const entry = {
+    colors: getColors(person, frame),
+    point: anchor,
+    lostFrames: 0,
+    ownerMask: new Uint8Array(person.data),
+    ownerAnchor: anchor,
+    ownerSize: countMask(person.data),
+  }
+
+  allowedPeople.push(entry)
+  currentAssignments[personIndex] = entry
   resetButton.disabled = false
-  statusText.textContent = 'Other detected people are now being removed'
+  statusText.textContent = `${allowedPeople.length} allowed on camera. Everyone else is removed`
 }
 
 function reset() {
   savedBackground = undefined
-  selectedPoint = undefined
-  selectedColors = undefined
-  ownerMask = undefined
-  ownerAnchor = undefined
-  ownerSize = undefined
-  trackingLostFrames = 0
+  allowedPeople = []
+  currentAssignments = []
   removalHold.fill(0)
   backgroundCandidateAge.fill(0)
   lastLightMap = undefined

@@ -9,9 +9,11 @@
     <h1>How ClearFrame works</h1>
     <p>
       ClearFrame removes photobombers from your webcam feed in real time. Capture your empty
-      room once, click yourself in the video, and anyone else who wanders into frame is erased
-      live — the background behind them is reconstructed so the shot stays clean. No green
-      screen, no blur, no cloud video processing: everything runs in the browser.
+      room once, click each person who is allowed on camera, and anyone else who wanders into
+      frame is erased live — the background behind them is reconstructed so the shot stays
+      clean. Allowed people are remembered by appearance, so they can leave and come back
+      without being erased. No green screen, no blur, no cloud video processing: everything
+      runs in the browser.
     </p>
 
     <h2>Why it matters</h2>
@@ -25,7 +27,7 @@
     <p>Every frame goes through a pipeline built from scratch on top of BodyPix person segmentation:</p>
     <ol>
       <li><strong>Background capture</strong> — averages 12 frames of the empty room into a clean plate.</li>
-      <li><strong>Person selection and tracking</strong> — click yourself once; a color-histogram and position tracker follows you between frames, so it keeps you (and only you) even when others overlap.</li>
+      <li><strong>Allowlist selection and tracking</strong> — click each person who may appear on camera; a color-histogram and position tracker follows them between frames, and re-identifies them by appearance if they leave the frame and return.</li>
       <li><strong>Owner protection mask</strong> — a shifted copy of your last-known silhouette prevents the eraser from eating your arm when someone brushes past you.</li>
       <li><strong>Removal with edge feathering</strong> — everyone else is masked, dilated, and blur-feathered, then filled with the background plate.</li>
       <li><strong>Live color correction</strong> — a per-channel linear regression matches the stored plate to current exposure, so auto-white-balance shifts don't create a ghost rectangle.</li>
