@@ -64,7 +64,7 @@ function countMask(mask) {
   return count
 }
 
-function getOwnerMask(person) {
+function getOwnerMask(person, othersNearby) {
   const currentAnchor = getAnchor(person)
   const currentSize = countMask(person.data)
 
@@ -75,19 +75,21 @@ function getOwnerMask(person) {
     return person.data
   }
 
-  if (currentSize < ownerSize * 1.2) {
+  if (!othersNearby || currentSize < ownerSize * 1.35) {
     ownerMask = new Uint8Array(person.data)
     ownerAnchor = currentAnchor
     ownerSize = ownerSize * 0.9 + currentSize * 0.1
     return person.data
   }
 
+  ownerSize = ownerSize * 0.98 + currentSize * 0.02
+
   const shiftedMask = new Uint8Array(person.data.length)
   const moveX = Math.round(currentAnchor.x - ownerAnchor.x)
   const moveY = Math.round(currentAnchor.y - ownerAnchor.y)
   const offsets = [
-    [0, 0], [-7, 0], [7, 0], [0, -7], [0, 7],
-    [-7, -7], [7, -7], [-7, 7], [7, 7],
+    [0, 0], [-12, 0], [12, 0], [0, -12], [0, 12],
+    [-12, -12], [12, -12], [-12, 12], [12, 12],
   ]
 
   for (let pixel = 0; pixel < ownerMask.length; pixel++) {
@@ -162,7 +164,7 @@ function findSelectedPerson(people, frame) {
     }
   })
 
-  const neededMatch = trackingLostFrames ? 0.8 : 0.7
+  const neededMatch = trackingLostFrames ? 0.6 : 0.7
   if (bestIndex === -1 || bestMatch < neededMatch) {
     trackingLostFrames++
     return -1
@@ -188,7 +190,7 @@ function makeRemovalMask(people, selectedIndex) {
   const mask = maskContext.createImageData(maskCanvas.width, maskCanvas.height)
   const selectedMask = selectedContext.createImageData(selectedMaskCanvas.width, selectedMaskCanvas.height)
   const selectedPerson = people[selectedIndex]
-  const protectedOwner = selectedPerson ? getOwnerMask(selectedPerson) : null
+  const protectedOwner = selectedPerson ? getOwnerMask(selectedPerson, people.length > 1) : null
 
   people.forEach((person, index) => {
     for (let pixel = 0; pixel < person.data.length; pixel++) {
@@ -471,7 +473,7 @@ async function processFrame() {
     const result = new ImageData(new Uint8ClampedArray(liveFrame.data), liveFrame.width, liveFrame.height)
     const selectedIndex = findSelectedPerson(currentPeople, liveFrame)
 
-    const removeEveryone = selectedPoint && trackingLostFrames > 2
+    const removeEveryone = selectedPoint && trackingLostFrames > 20
 
     if (savedBackground && (selectedIndex !== -1 || removeEveryone)) {
       const masks = makeRemovalMask(currentPeople, selectedIndex)
