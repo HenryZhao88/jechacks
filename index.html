@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ClearFrame</title>
+  </head>
+  <body>
+    <h1>ClearFrame</h1>
+    <p>Removes other people from your webcam while keeping you and your room visible.</p>
+
+    <button id="start">Start camera</button>
+    <button id="background" disabled>Capture empty background</button>
+    <button id="reset" disabled>Reset</button>
+
+    <p id="status">Camera is off</p>
+    <video id="video" muted playsinline hidden></video>
+    <canvas id="canvas"></canvas>
+    <p id="placeholder">Camera preview will appear above.</p>
+
+    <ol>
+      <li>Start the camera.</li>
+      <li>Step out of view and capture the empty background.</li>
+      <li>Step back in and click yourself in the video.</li>
+    </ol>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
