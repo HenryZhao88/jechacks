@@ -692,8 +692,8 @@ async function checkFrame() {
     rawContext.drawImage(inputCanvas, 0, 0)
 
     const images = [
-      canvas.toDataURL('image/jpeg', 0.92),
-      rawCanvas.toDataURL('image/jpeg', 0.92),
+      canvas.toDataURL('image/jpeg', 0.78),
+      rawCanvas.toDataURL('image/jpeg', 0.78),
     ]
     const detailCanvas = document.createElement('canvas')
     const detailContext = detailCanvas.getContext('2d')
@@ -714,7 +714,7 @@ async function checkFrame() {
           detailCanvas.width,
           detailCanvas.height,
         )
-        images.push(detailCanvas.toDataURL('image/jpeg', 0.92))
+        images.push(detailCanvas.toDataURL('image/jpeg', 0.78))
       }
     }
 
@@ -730,7 +730,7 @@ async function checkFrame() {
     try {
       result = JSON.parse(responseText)
     } catch {
-      throw new Error(`AI check server returned an invalid response (${response.status}). Restart the app with npm run dev.`)
+      throw new Error(`AI check returned an invalid response (${response.status})`)
     }
 
     if (!response.ok) throw new Error(result.error || 'Frame check failed')

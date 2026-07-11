@@ -4,29 +4,49 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ClearFrame</title>
+    <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
-    <h1>ClearFrame</h1>
-    <p>Removes everyone from your webcam except the people you choose to allow on camera.</p>
+    <main class="page">
+      <header class="intro">
+        <h1>ClearFrame</h1>
+        <p>Removes everyone from your webcam except the people you choose to allow on camera.</p>
+      </header>
 
-    <button id="start">Start camera</button>
-    <button id="background" disabled>Capture empty background</button>
-    <button id="reset" disabled>Reset</button>
-    <button id="check" disabled>Check frame with AI</button>
+      <section class="camera-card">
+        <div class="preview">
+          <video id="video" muted playsinline hidden></video>
+          <canvas id="canvas"></canvas>
+          <p id="placeholder">Camera preview will appear above.</p>
+        </div>
 
-    <p id="status">Camera is off</p>
-    <p id="check-result"></p>
-    <video id="video" muted playsinline hidden></video>
-    <canvas id="canvas"></canvas>
-    <p id="placeholder">Camera preview will appear above.</p>
+        <div class="controls">
+          <div class="status-line">
+            <span class="status-dot"></span>
+            <p id="status">Camera is off</p>
+          </div>
 
-    <ol>
-      <li>Start the camera.</li>
-      <li>Step out of view and capture the empty background.</li>
-      <li>Step back in and click each person who is allowed on camera. Click them again to un-allow them.</li>
-    </ol>
+          <div class="button-row">
+            <button id="start">Start camera</button>
+            <button id="background" disabled>Capture empty background</button>
+            <button id="check" disabled>Check frame with AI</button>
+            <button id="reset" class="secondary" disabled>Reset</button>
+          </div>
 
-    <p><a href="/info.html">How it works</a></p>
+          <p id="check-result"></p>
+        </div>
+      </section>
+
+      <section class="steps">
+        <ol>
+          <li>Start the camera.</li>
+          <li>Step out of view and capture the empty background.</li>
+          <li>Step back in and click each person who is allowed on camera. Click them again to un-allow them.</li>
+        </ol>
+      </section>
+
+      <p class="info-link"><a href="/info.html">How it works</a></p>
+    </main>
 
     <script type="module" src="/src/main.js"></script>
   </body>

@@ -46,7 +46,15 @@ export default async function handler(request, response) {
       }),
     })
 
-    const data = await featherlessResponse.json()
+    const responseText = await featherlessResponse.text()
+    let data
+
+    try {
+      data = JSON.parse(responseText)
+    } catch {
+      throw new Error(`Featherless returned an invalid response (${featherlessResponse.status})`)
+    }
+
     if (!featherlessResponse.ok) {
       throw new Error(data.error?.message || 'Featherless request failed')
     }
