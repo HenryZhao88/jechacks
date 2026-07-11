@@ -12,8 +12,10 @@
     <button id="start">Start camera</button>
     <button id="background" disabled>Capture empty background</button>
     <button id="reset" disabled>Reset</button>
+    <button id="check" disabled>Check frame with AI</button>
 
     <p id="status">Camera is off</p>
+    <p id="check-result"></p>
     <video id="video" muted playsinline hidden></video>
     <canvas id="canvas"></canvas>
     <p id="placeholder">Camera preview will appear above.</p>
@@ -23,6 +25,8 @@
       <li>Step out of view and capture the empty background.</li>
       <li>Step back in and click yourself in the video.</li>
     </ol>
+
+    <p><a href="/info.html">How it works</a></p>
 
     <script type="module" src="/src/main.js"></script>
   </body>

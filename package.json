@@ -3,13 +3,15 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node server.js",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "@tensorflow-models/body-pix": "^2.2.1",
-    "@tensorflow/tfjs": "^4.22.0"
+    "@tensorflow/tfjs": "^4.22.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
   },
   "devDependencies": {
     "vite": "^6.0.5"
