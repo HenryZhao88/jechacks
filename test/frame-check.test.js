@@ -10,7 +10,7 @@ import {
 import { createApp } from '../server.js'
 
 const FEATHERLESS_URL = 'https://api.featherless.ai/v1/chat/completions'
-const AUDIT_PROMPT = 'Image 1 is the processed ClearFrame result. Image 2 is the original raw camera frame from the same moment. The remaining four images are detailed crops of the processed result. Compare the people in the raw frame against the processed frame. Inspect carefully for any part of a removed person that remains, even a tiny clothing, hair, skin, hand, limb, or silhouette fragment. Also check for ghosts, seams, and mismatched patches. Be strict. Reply in one short sentence saying whether the frame passes or describing the remaining artifact.'
+const AUDIT_PROMPT = 'Image 1 is the processed ClearFrame result. Image 2 is the original raw camera frame from the same moment. The remaining four images are detailed crops of the processed result. ClearFrame erases some people from the frame while keeping the people who are allowed on camera. A complete, intact person in the processed frame is allowed and is never an artifact. The removal is only a failure if it left visible partial remnants in the processed pixels: stray patches of clothing or skin color, disembodied limbs, ghost silhouettes, seams, or mismatched background patches. Reply with exactly one short sentence that starts with "VERDICT-FAIL:" describing the remnant you can see in the processed frame, or "VERDICT-PASS:" if the processed frame shows no such remnants.'
 
 function jpegDataUrl(size = 4) {
   assert.ok(size >= 4)
@@ -391,6 +391,28 @@ test('requestFrameCheck accepts reasoning content when normal content is empty',
   })
 
   assert.equal(message, 'No artifact remains.')
+})
+
+test('requestFrameCheck maps verdicts to display messages', async () => {
+  const cases = [
+    ['VERDICT-PASS: The frame is clean.', ''],
+    ['verdict-pass', ''],
+    ['<think>inspecting the crops</think>\nVERDICT-PASS: No leftovers visible.', ''],
+    ['VERDICT-FAIL: A green patch remains on the right.', 'A green patch remains on the right.'],
+    ['<think>found something</think>VERDICT-FAIL: A ghost outline remains.', 'A ghost outline remains.'],
+    ['No verdict prefix at all.', 'No verdict prefix at all.'],
+  ]
+
+  for (const [content, expected] of cases) {
+    const message = await requestFrameCheck(validImages(), {
+      apiKey: 'test-secret',
+      fetchImpl: async () => providerResponse(200, JSON.stringify({
+        choices: [{ message: { content } }],
+      })),
+    })
+
+    assert.equal(message, expected)
+  }
 })
 
 test('requestFrameCheck retries transient network failures before succeeding', async () => {

@@ -923,7 +923,7 @@ async function checkFrame() {
       throw new Error(typeof result?.error === 'string' ? result.error : 'Frame check failed')
     }
 
-    if (typeof result?.message !== 'string' || !result.message.trim()) {
+    if (typeof result?.message !== 'string') {
       throw new Error('AI check returned an empty response')
     }
 
