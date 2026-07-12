@@ -4,48 +4,52 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ClearFrame — How it works</title>
-    <link rel="stylesheet" href="/src/styles.css" />
+    <link rel="stylesheet" href="/src/style.css" />
   </head>
-  <body class="info-page">
-    <main class="article">
-    <h1>How ClearFrame works</h1>
-    <p>
-      ClearFrame removes photobombers from your webcam feed in real time. Capture your empty
-      room once, click each person who is allowed on camera, and anyone else who wanders into
-      frame is erased live — the background behind them is reconstructed so the shot stays
-      clean. Allowed people are remembered by appearance, so they can leave and come back
-      without being erased. No green screen, no blur, no cloud video processing: everything
-      runs in the browser.
-    </p>
+  <body>
+    <div class="page">
+      <header class="site-header">
+        <p class="wordmark"><a href="/">ClearFrame</a></p>
+        <nav><a href="/">Back to the demo</a></nav>
+      </header>
 
-    <h2>Why it matters</h2>
-    <p>
-      Video calls happen in dorms, cafés, and shared apartments. Background blur hides your
-      room; virtual backgrounds hide <em>you in a fake room</em>. ClearFrame keeps your real
-      space and just deletes the people who don't belong in the shot.
-    </p>
+      <main class="prose">
+        <h1>How ClearFrame works</h1>
+        <p>
+          ClearFrame removes photobombers from your webcam feed in real time. Capture your empty
+          room once, click each person who is allowed on camera, and anyone else who wanders into
+          frame is erased live — the background behind them is reconstructed so the shot stays
+          clean. Allowed people are remembered by appearance, so they can leave and come back
+          without being erased. No green screen, no blur, no cloud video processing: everything
+          runs in the browser.
+        </p>
 
-    <h2>The pipeline</h2>
-    <p>Every frame goes through a pipeline built from scratch on top of BodyPix person segmentation:</p>
-    <ol>
-      <li><strong>Background capture</strong> — averages 12 frames of the empty room into a clean plate.</li>
-      <li><strong>Allowlist selection and tracking</strong> — click each person who may appear on camera; a color-histogram and position tracker follows them between frames, and re-identifies them by appearance if they leave the frame and return.</li>
-      <li><strong>Owner protection mask</strong> — a shifted copy of your last-known silhouette prevents the eraser from eating your arm when someone brushes past you.</li>
-      <li><strong>Removal with edge feathering</strong> — everyone else is masked, dilated, and blur-feathered, then filled with the background plate.</li>
-      <li><strong>Live color correction</strong> — a per-channel linear regression matches the stored plate to current exposure, so auto-white-balance shifts don't create a ghost rectangle.</li>
-      <li><strong>Local relighting</strong> — an 8×5 light map interpolates lighting changes (someone flips a switch, clouds move) across the reconstructed region.</li>
-      <li><strong>Background self-healing</strong> — stable non-person pixels slowly refresh the plate, so a moved chair becomes part of the room instead of a permanent smear.</li>
-      <li><strong>AI quality audit</strong> — one click sends the raw frame, the processed frame, and detail crops to a vision model (Qwen 3.6 via Featherless) that hunts for leftover limbs, ghosts, and seams.</li>
-    </ol>
-    <p>All of the vision processing (steps 1–7) runs client-side at interactive framerates on a 640-px pipeline.</p>
+        <h2>Why it matters</h2>
+        <p>
+          Video calls happen in dorms, cafés, and shared apartments. Background blur hides your
+          room; virtual backgrounds hide you in a fake room. ClearFrame keeps your real
+          space and just deletes the people who don't belong in the shot.
+        </p>
 
-    <h2>Stack</h2>
-    <p>
-      Vanilla JS + Canvas 2D · TensorFlow.js BodyPix (in-browser segmentation) · Vite + Express ·
-      Featherless (Qwen 3.6 vision) for the quality audit
-    </p>
+        <h2>How it works</h2>
+        <ol>
+          <li>Background capture: averages 12 frames of the empty room into a clean plate.</li>
+          <li>Allowlist selection and tracking: click each person who may appear on camera; a color-histogram and position tracker follows them between frames, and re-identifies them by appearance if they leave the frame and return.</li>
+          <li>Owner protection mask: a shifted copy of your last-known silhouette prevents the eraser from eating your arm when someone brushes past you.</li>
+          <li>Removal with edge feathering: everyone else is masked, dilated, and blur-feathered, then filled with the background plate.</li>
+          <li>Live color correction: a per-channel linear regression matches the stored plate to current exposure, so auto-white-balance shifts don't create a ghost rectangle.</li>
+          <li>Local relighting: an 8x5 light map interpolates lighting changes (someone flips a switch, clouds move) across the reconstructed region.</li>
+          <li>Background self-healing: stable non-person pixels slowly refresh the plate, so a moved chair becomes part of the room instead of a permanent smear.</li>
+          <li>AI quality audit: one click sends the raw frame, the processed frame, and detail crops to a vision model (Qwen 3.6 via Featherless) that hunts for leftover limbs, ghosts, and seams.</li>
+        </ol>
+        <p>All of the vision processing (steps 1–7) runs client-side at interactive framerates on a 640-px pipeline.</p>
 
-    <p><a href="/">Back to the demo</a></p>
-    </main>
+        <h2>Stack</h2>
+        <p>
+          Vanilla JS + Canvas 2D · TensorFlow.js BodyPix (in-browser segmentation) · Vite + Express ·
+          Featherless (Qwen 3.6 vision) for the quality audit
+        </p>
+      </main>
+    </div>
   </body>
 </html>
