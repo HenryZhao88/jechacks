@@ -42,14 +42,14 @@
           <li>Live color correction: a per-channel linear regression matches the stored plate to current exposure, so auto-white-balance shifts do not create a ghost rectangle.</li>
           <li>Local relighting: an 8x5 light map interpolates lighting changes (someone flips a switch, clouds move) across the reconstructed region.</li>
           <li>Background self-healing: stable non-person pixels slowly refresh the plate, so a moved chair becomes part of the room instead of a permanent smear.</li>
-          <li>AI quality audit: one click sends the raw frame, the processed frame, and detail crops to a vision model (Qwen 3.6 via Featherless) that hunts for leftover limbs, ghosts, and seams.</li>
+          <li>AI quality audit: one click sends the raw frame, the processed frame, and detail crops to a vision model (Qwen3-VL 235B via Featherless) that hunts for leftover limbs, ghosts, and seams.</li>
         </ol>
         <p>All of the vision processing (steps 1-7) runs client-side at interactive framerates on a 640-px pipeline.</p>
 
         <h2>Stack</h2>
         <p>
           Vanilla JS + Canvas 2D · TensorFlow.js BodyPix (in-browser segmentation) · Vite + Express ·
-          Featherless (Qwen 3.6 vision) for the quality audit
+          Featherless (Qwen3-VL 235B) for the quality audit
         </p>
       </main>
     </div>
