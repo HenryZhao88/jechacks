@@ -16,6 +16,8 @@ const selectedMaskCanvas = document.createElement('canvas')
 const protectedMaskCanvas = document.createElement('canvas')
 const captureCanvas = document.createElement('canvas')
 const width = 640
+const frameCheckTimeout = 55_000
+const frameCheckBodyLimit = 3.8 * 1024 * 1024
 
 let model
 let savedBackground
@@ -27,6 +29,70 @@ let lastLightMap
 let backgroundCandidates
 let backgroundCandidateAge
 let running = false
+let lastCommittedFrame
+let sceneRevision = 0
+let checkingFrame = false
+let capturingBackground = false
+let consecutiveProcessingErrors = 0
+let cameraGeneration = 0
+let backgroundCaptureId = 0
+let frameCheckId = 0
+let activeFrameCheckController
+
+function refreshCheckButton() {
+  const frameIsCurrent = lastCommittedFrame?.revision === sceneRevision
+  checkButton.disabled = checkingFrame
+    || capturingBackground
+    || !running
+    || !savedBackground
+    || allowedPeople.length === 0
+    || !frameIsCurrent
+  checkButton.setAttribute('aria-busy', String(checkingFrame))
+}
+
+function markSceneChanged() {
+  frameCheckId++
+  activeFrameCheckController?.abort()
+  activeFrameCheckController = undefined
+  checkingFrame = false
+  sceneRevision++
+  checkResult.textContent = ''
+  refreshCheckButton()
+}
+
+function releaseCamera() {
+  cameraGeneration++
+  backgroundCaptureId++
+  frameCheckId++
+  activeFrameCheckController?.abort()
+  activeFrameCheckController = undefined
+  running = false
+
+  const stream = video.srcObject
+  if (stream) stream.getTracks().forEach((track) => track.stop())
+  video.srcObject = null
+  model = undefined
+  savedBackground = undefined
+  allowedPeople = []
+  currentPeople = []
+  currentAssignments = []
+  lastCommittedFrame = undefined
+  lastLightMap = undefined
+  removalHold = undefined
+  backgroundCandidates = undefined
+  backgroundCandidateAge = undefined
+  capturingBackground = false
+  checkingFrame = false
+  sceneRevision++
+  checkResult.textContent = ''
+
+  canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height)
+  placeholder.hidden = false
+  startButton.disabled = false
+  backgroundButton.disabled = true
+  resetButton.disabled = true
+  refreshCheckButton()
+}
 
 function getCenter(person) {
   let totalX = 0
@@ -460,17 +526,18 @@ function getLocalLight(x, y, lightMap) {
   }
 }
 
-async function processFrame() {
-  if (!running) return
+async function processFrame(generation) {
+  if (!running || generation !== cameraGeneration) return
 
-  const inputContext = inputCanvas.getContext('2d', { willReadFrequently: true })
-  const outputContext = outputCanvas.getContext('2d')
-  const canvasContext = canvas.getContext('2d')
-
-  inputContext.drawImage(video, 0, 0, inputCanvas.width, inputCanvas.height)
+  let nextFrameDelay = 30
 
   try {
-    currentPeople = await model.segmentMultiPerson(inputCanvas, {
+    const inputContext = inputCanvas.getContext('2d', { willReadFrequently: true })
+    const outputContext = outputCanvas.getContext('2d')
+    const canvasContext = canvas.getContext('2d')
+
+    inputContext.drawImage(video, 0, 0, inputCanvas.width, inputCanvas.height)
+    const people = await model.segmentMultiPerson(inputCanvas, {
       internalResolution: 'high',
       segmentationThreshold: 0.53,
       maxDetections: 5,
@@ -478,12 +545,15 @@ async function processFrame() {
       nmsRadius: 20,
     })
 
+    if (!running || generation !== cameraGeneration) return
+
     const liveFrame = inputContext.getImageData(0, 0, inputCanvas.width, inputCanvas.height)
     const result = new ImageData(new Uint8ClampedArray(liveFrame.data), liveFrame.width, liveFrame.height)
-    currentAssignments = matchAllowedPeople(currentPeople, liveFrame)
+    const assignments = matchAllowedPeople(people, liveFrame)
+    const processedRevision = sceneRevision
 
     if (savedBackground && allowedPeople.length > 0) {
-      const masks = makeRemovalMask(currentPeople, currentAssignments)
+      const masks = makeRemovalMask(people, assignments)
       const mask = masks.removal
 
       for (let pixel = 0; pixel < mask.width * mask.height; pixel++) {
@@ -491,8 +561,8 @@ async function processFrame() {
         mask.data[alpha] *= 1 - masks.protection.data[alpha] / 255
       }
 
-      const correction = getColorCorrection(liveFrame, currentPeople, mask)
-      const lightMap = getLightMap(liveFrame, currentPeople, correction, mask)
+      const correction = getColorCorrection(liveFrame, people, mask)
+      const lightMap = getLightMap(liveFrame, people, correction, mask)
 
       for (let pixel = 0; pixel < mask.width * mask.height; pixel++) {
         const color = pixel * 4
@@ -512,7 +582,7 @@ async function processFrame() {
         result.data[color + 2] = liveFrame.data[color + 2] * (1 - amount) + backgroundBlue * amount
       }
 
-      updateBackground(liveFrame, currentPeople, mask, correction)
+      updateBackground(liveFrame, people, mask, correction)
     }
 
     outputContext.putImageData(result, 0, 0)
@@ -521,23 +591,45 @@ async function processFrame() {
     canvasContext.scale(-1, 1)
     canvasContext.drawImage(outputCanvas, 0, 0, canvas.width, canvas.height)
     canvasContext.restore()
-  } catch (error) {
-    console.error(error)
-  }
 
-  setTimeout(processFrame, 30)
+    currentPeople = people
+    currentAssignments = assignments
+    lastCommittedFrame = { raw: liveFrame, processed: result, revision: processedRevision }
+    refreshCheckButton()
+
+    if (consecutiveProcessingErrors) statusText.textContent = 'Camera processing recovered'
+    consecutiveProcessingErrors = 0
+  } catch (error) {
+    if (generation !== cameraGeneration) return
+    console.error(error)
+    consecutiveProcessingErrors++
+
+    if (consecutiveProcessingErrors >= 5) {
+      releaseCamera()
+      statusText.textContent = 'Camera processing stopped after repeated errors. Start the camera to retry.'
+    } else {
+      statusText.textContent = 'Camera processing was interrupted. Retrying...'
+      nextFrameDelay = Math.min(1_000, 100 * (2 ** (consecutiveProcessingErrors - 1)))
+    }
+  } finally {
+    if (running && generation === cameraGeneration) {
+      setTimeout(() => processFrame(generation), nextFrameDelay)
+    }
+  }
 }
 
 async function startCamera() {
+  const generation = ++cameraGeneration
   statusText.textContent = 'Starting camera...'
   startButton.disabled = true
+  let stream
 
   try {
     if (!navigator.mediaDevices) {
       throw new Error('Camera access only works on localhost or HTTPS')
     }
 
-    const stream = await navigator.mediaDevices.getUserMedia({
+    stream = await navigator.mediaDevices.getUserMedia({
       video: { width: 1280, height: 720, facingMode: 'user' },
       audio: false,
     })
@@ -578,59 +670,119 @@ async function startCamera() {
       quantBytes: 2,
     })
 
+    if (!stream.active || stream.getVideoTracks()[0]?.readyState !== 'live') {
+      throw new Error('The camera stopped while person detection was loading. Start it again to retry.')
+    }
+
+    stream.getVideoTracks()[0]?.addEventListener('ended', () => {
+      if (video.srcObject !== stream) return
+      releaseCamera()
+      statusText.textContent = 'Camera stopped. Start it again to continue.'
+    })
+
     running = true
+    consecutiveProcessingErrors = 0
     startButton.disabled = true
     backgroundButton.disabled = false
-    checkButton.disabled = false
     placeholder.hidden = true
     statusText.textContent = 'Camera is ready'
-    processFrame()
+    refreshCheckButton()
+    processFrame(generation)
   } catch (error) {
+    stream?.getTracks().forEach((track) => track.stop())
+    if (video.srcObject === stream) video.srcObject = null
+    model = undefined
+    running = false
     statusText.textContent = error.message || 'Could not start the camera'
     startButton.disabled = false
+    backgroundButton.disabled = true
+    refreshCheckButton()
   }
 }
 
 async function captureBackground() {
+  const operationId = ++backgroundCaptureId
+  const generation = cameraGeneration
+  const startingRevision = sceneRevision
+  capturingBackground = true
   backgroundButton.disabled = true
+  refreshCheckButton()
   statusText.textContent = 'Capturing background. Keep the room empty...'
 
-  const context = captureCanvas.getContext('2d', { willReadFrequently: true })
-  const totals = new Float32Array(width * inputCanvas.height * 4)
-  const frameCount = 12
-
-  for (let frameNumber = 0; frameNumber < frameCount; frameNumber++) {
-    context.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height)
-    const frame = context.getImageData(0, 0, captureCanvas.width, captureCanvas.height)
-
-    for (let i = 0; i < frame.data.length; i++) {
-      totals[i] += frame.data[i]
+  try {
+    const stream = video.srcObject
+    if (!running || !stream?.active || video.readyState < 2) {
+      throw new Error('The camera is not ready. Start it again and retry.')
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 40))
-  }
+    const context = captureCanvas.getContext('2d', { willReadFrequently: true })
+    const totals = new Float32Array(width * inputCanvas.height * 4)
+    const frameCount = 12
 
-  const average = new Uint8ClampedArray(totals.length)
-  for (let i = 0; i < totals.length; i++) {
-    average[i] = totals[i] / frameCount
-  }
+    for (let frameNumber = 0; frameNumber < frameCount; frameNumber++) {
+      if (operationId !== backgroundCaptureId
+        || generation !== cameraGeneration
+        || startingRevision !== sceneRevision
+        || !running) {
+        throw new Error('Background capture was cancelled')
+      }
 
-  savedBackground = new ImageData(average, width, inputCanvas.height)
-  removalHold.fill(0)
-  backgroundCandidateAge.fill(0)
-  lastLightMap = undefined
-  backgroundButton.disabled = false
-  resetButton.disabled = false
-  statusText.textContent = 'Background saved. Step back in and click each person allowed on camera.'
+      context.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height)
+      const frame = context.getImageData(0, 0, captureCanvas.width, captureCanvas.height)
+
+      for (let i = 0; i < frame.data.length; i++) {
+        totals[i] += frame.data[i]
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 40))
+    }
+
+    if (operationId !== backgroundCaptureId
+      || generation !== cameraGeneration
+      || startingRevision !== sceneRevision
+      || !running) {
+      throw new Error('Background capture was cancelled')
+    }
+
+    const average = new Uint8ClampedArray(totals.length)
+    for (let i = 0; i < totals.length; i++) {
+      average[i] = totals[i] / frameCount
+    }
+
+    const nextBackground = new ImageData(average, width, inputCanvas.height)
+    removalHold.fill(0)
+    backgroundCandidateAge.fill(0)
+    allowedPeople = []
+    currentPeople = []
+    currentAssignments = []
+    lastCommittedFrame = undefined
+    lastLightMap = undefined
+    savedBackground = nextBackground
+    resetButton.disabled = false
+    markSceneChanged()
+    statusText.textContent = 'Background saved. Step back in and click each person allowed on camera.'
+  } catch (error) {
+    const operationIsCurrent = operationId === backgroundCaptureId
+      && generation === cameraGeneration
+      && startingRevision === sceneRevision
+    if (operationIsCurrent) statusText.textContent = error.message || 'Could not capture the background'
+  } finally {
+    if (operationId === backgroundCaptureId) {
+      capturingBackground = false
+      backgroundButton.disabled = !running
+      refreshCheckButton()
+    }
+  }
 }
 
 function selectPerson(event) {
-  if (!model) return
+  if (!model || !lastCommittedFrame) return
 
   const box = canvas.getBoundingClientRect()
-  const shownX = ((event.clientX - box.left) / box.width) * width
-  const x = Math.floor(width - shownX)
-  const y = Math.floor(((event.clientY - box.top) / box.height) * inputCanvas.height)
+  const shownX = Math.floor(((event.clientX - box.left) / box.width) * width)
+  const shownY = Math.floor(((event.clientY - box.top) / box.height) * inputCanvas.height)
+  const x = Math.max(0, Math.min(width - 1, width - 1 - shownX))
+  const y = Math.max(0, Math.min(inputCanvas.height - 1, shownY))
   const personIndex = currentPeople.findIndex((item) => item.data[y * item.width + x])
 
   if (personIndex === -1) {
@@ -643,6 +795,7 @@ function selectPerson(event) {
   if (existing) {
     allowedPeople = allowedPeople.filter((entry) => entry !== existing)
     currentAssignments[personIndex] = null
+    markSceneChanged()
     statusText.textContent = allowedPeople.length
       ? `Removed them. ${allowedPeople.length} allowed on camera`
       : 'Nobody selected — showing everyone. Click people to allow them.'
@@ -651,7 +804,7 @@ function selectPerson(event) {
 
   const person = currentPeople[personIndex]
   const anchor = getAnchor(person) || { x, y }
-  const frame = inputCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, inputCanvas.width, inputCanvas.height)
+  const frame = lastCommittedFrame.raw
   const entry = {
     colors: getColors(person, frame),
     point: anchor,
@@ -664,6 +817,7 @@ function selectPerson(event) {
   allowedPeople.push(entry)
   currentAssignments[personIndex] = entry
   resetButton.disabled = false
+  markSceneChanged()
   statusText.textContent = `${allowedPeople.length} allowed on camera. Everyone else is removed`
 }
 
@@ -671,57 +825,89 @@ function reset() {
   savedBackground = undefined
   allowedPeople = []
   currentAssignments = []
-  removalHold.fill(0)
-  backgroundCandidateAge.fill(0)
+  removalHold?.fill(0)
+  backgroundCandidateAge?.fill(0)
   lastLightMap = undefined
   resetButton.disabled = true
+  markSceneChanged()
   statusText.textContent = 'Capture a new empty background'
 }
 
+function createMirroredCanvas(imageData) {
+  const source = document.createElement('canvas')
+  source.width = imageData.width
+  source.height = imageData.height
+  source.getContext('2d').putImageData(imageData, 0, 0)
+
+  const mirrored = document.createElement('canvas')
+  mirrored.width = imageData.width
+  mirrored.height = imageData.height
+  const context = mirrored.getContext('2d')
+  context.translate(mirrored.width, 0)
+  context.scale(-1, 1)
+  context.drawImage(source, 0, 0)
+  return mirrored
+}
+
 async function checkFrame() {
-  checkButton.disabled = true
+  const snapshot = lastCommittedFrame
+  if (!snapshot || snapshot.revision !== sceneRevision || !savedBackground || !allowedPeople.length) {
+    checkResult.textContent = 'Capture a background, select an allowed person, and wait for the next frame.'
+    refreshCheckButton()
+    return
+  }
+
+  checkingFrame = true
+  refreshCheckButton()
   checkResult.textContent = 'Checking frame...'
+  const operationId = ++frameCheckId
+  const controller = new AbortController()
+  activeFrameCheckController = controller
+  const timeout = setTimeout(() => controller.abort(), frameCheckTimeout)
 
   try {
-    const rawCanvas = document.createElement('canvas')
-    const rawContext = rawCanvas.getContext('2d')
-    rawCanvas.width = inputCanvas.width
-    rawCanvas.height = inputCanvas.height
-    rawContext.translate(rawCanvas.width, 0)
-    rawContext.scale(-1, 1)
-    rawContext.drawImage(inputCanvas, 0, 0)
+    const processedCanvas = createMirroredCanvas(snapshot.processed)
+    const rawCanvas = createMirroredCanvas(snapshot.raw)
 
     const images = [
-      canvas.toDataURL('image/jpeg', 0.78),
-      rawCanvas.toDataURL('image/jpeg', 0.78),
+      processedCanvas.toDataURL('image/jpeg', 0.82),
+      rawCanvas.toDataURL('image/jpeg', 0.82),
     ]
     const detailCanvas = document.createElement('canvas')
     const detailContext = detailCanvas.getContext('2d')
-    detailCanvas.width = Math.floor(canvas.width / 2)
-    detailCanvas.height = Math.floor(canvas.height / 2)
+    const sourceWidth = Math.floor(processedCanvas.width / 2)
+    const sourceHeight = Math.floor(processedCanvas.height / 2)
+    detailCanvas.width = processedCanvas.width
+    detailCanvas.height = processedCanvas.height
 
     for (let row = 0; row < 2; row++) {
       for (let column = 0; column < 2; column++) {
         detailContext.clearRect(0, 0, detailCanvas.width, detailCanvas.height)
         detailContext.drawImage(
-          canvas,
-          column * detailCanvas.width,
-          row * detailCanvas.height,
-          detailCanvas.width,
-          detailCanvas.height,
+          processedCanvas,
+          column * sourceWidth,
+          row * sourceHeight,
+          sourceWidth,
+          sourceHeight,
           0,
           0,
           detailCanvas.width,
           detailCanvas.height,
         )
-        images.push(detailCanvas.toDataURL('image/jpeg', 0.78))
+        images.push(detailCanvas.toDataURL('image/jpeg', 0.82))
       }
+    }
+
+    const requestBody = JSON.stringify({ images })
+    if (new TextEncoder().encode(requestBody).byteLength > frameCheckBodyLimit) {
+      throw new Error('The frame images are too large to upload. Try again with a less detailed scene.')
     }
 
     const response = await fetch('/api/check-frame', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ images }),
+      body: requestBody,
+      signal: controller.signal,
     })
 
     const responseText = await response.text()
@@ -733,13 +919,31 @@ async function checkFrame() {
       throw new Error(`AI check returned an invalid response (${response.status})`)
     }
 
-    if (!response.ok) throw new Error(result.error || 'Frame check failed')
-    checkResult.textContent = result.message
-  } catch (error) {
-    checkResult.textContent = error.message
-  }
+    if (!response.ok) {
+      throw new Error(typeof result?.error === 'string' ? result.error : 'Frame check failed')
+    }
 
-  checkButton.disabled = false
+    if (typeof result?.message !== 'string' || !result.message.trim()) {
+      throw new Error('AI check returned an empty response')
+    }
+
+    if (operationId === frameCheckId && sceneRevision === snapshot.revision) {
+      checkResult.textContent = result.message.trim()
+    }
+  } catch (error) {
+    if (operationId === frameCheckId && sceneRevision === snapshot.revision) {
+      checkResult.textContent = error.name === 'AbortError'
+        ? 'The AI frame check timed out. Please try again.'
+        : error.message || 'The frame check failed'
+    }
+  } finally {
+    clearTimeout(timeout)
+    if (operationId === frameCheckId) {
+      activeFrameCheckController = undefined
+      checkingFrame = false
+      refreshCheckButton()
+    }
+  }
 }
 
 startButton.addEventListener('click', startCamera)

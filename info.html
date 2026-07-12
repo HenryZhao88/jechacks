@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ClearFrame — How it works</title>
+    <title>ClearFrame - How it works</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
@@ -18,17 +18,19 @@
         <p>
           ClearFrame removes photobombers from your webcam feed in real time. Capture your empty
           room once, click each person who is allowed on camera, and anyone else who wanders into
-          frame is erased live — the background behind them is reconstructed so the shot stays
+          frame is erased live - the background behind them is reconstructed so the shot stays
           clean. Allowed people are remembered by appearance, so they can leave and come back
-          without being erased. No green screen, no blur, no cloud video processing: everything
-          runs in the browser.
+          without being erased. No green screen or background blur is required, and the live video
+          pipeline runs in the browser. The optional AI quality audit uploads a matched pair of
+          still frames and four processed-frame crops to Featherless; it does not upload a
+          continuous video.
         </p>
 
         <h2>Why it matters</h2>
         <p>
-          Video calls happen in dorms, cafés, and shared apartments. Background blur hides your
-          room; virtual backgrounds hide you in a fake room. ClearFrame keeps your real
-          space and just deletes the people who don't belong in the shot.
+          Video calls happen in dorms, cafes, and shared apartments. Background blur hides your
+          room; virtual backgrounds hide you in a fake room. ClearFrame keeps your real space and
+          just deletes the people who do not belong in the shot.
         </p>
 
         <h2>How it works</h2>
@@ -37,12 +39,12 @@
           <li>Allowlist selection and tracking: click each person who may appear on camera; a color-histogram and position tracker follows them between frames, and re-identifies them by appearance if they leave the frame and return.</li>
           <li>Owner protection mask: a shifted copy of your last-known silhouette prevents the eraser from eating your arm when someone brushes past you.</li>
           <li>Removal with edge feathering: everyone else is masked, dilated, and blur-feathered, then filled with the background plate.</li>
-          <li>Live color correction: a per-channel linear regression matches the stored plate to current exposure, so auto-white-balance shifts don't create a ghost rectangle.</li>
+          <li>Live color correction: a per-channel linear regression matches the stored plate to current exposure, so auto-white-balance shifts do not create a ghost rectangle.</li>
           <li>Local relighting: an 8x5 light map interpolates lighting changes (someone flips a switch, clouds move) across the reconstructed region.</li>
           <li>Background self-healing: stable non-person pixels slowly refresh the plate, so a moved chair becomes part of the room instead of a permanent smear.</li>
           <li>AI quality audit: one click sends the raw frame, the processed frame, and detail crops to a vision model (Qwen 3.6 via Featherless) that hunts for leftover limbs, ghosts, and seams.</li>
         </ol>
-        <p>All of the vision processing (steps 1–7) runs client-side at interactive framerates on a 640-px pipeline.</p>
+        <p>All of the vision processing (steps 1-7) runs client-side at interactive framerates on a 640-px pipeline.</p>
 
         <h2>Stack</h2>
         <p>

@@ -2,10 +2,15 @@
   "name": "clearframe",
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "dev": "node server.js",
     "build": "vite build",
-    "preview": "vite preview"
+    "start": "node server.js --production",
+    "preview": "npm run build && node server.js --production",
+    "test": "node --test"
   },
   "dependencies": {
     "@tensorflow-models/body-pix": "^2.2.1",

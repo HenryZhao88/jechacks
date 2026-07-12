@@ -18,8 +18,14 @@
 
         <div class="preview">
           <video id="video" muted playsinline hidden></video>
-          <canvas id="canvas" width="1280" height="720"></canvas>
-          <p id="placeholder">Camera preview will appear here</p>
+          <canvas
+            id="canvas"
+            width="1280"
+            height="720"
+            role="img"
+            aria-label="Mirrored camera preview. Click a detected person to allow or remove them."
+          ></canvas>
+          <p id="placeholder">Camera preview will appear above.</p>
         </div>
 
         <div class="controls">
@@ -29,8 +35,8 @@
           <button id="reset" disabled>Reset</button>
         </div>
 
-        <p id="status" role="status">Camera is off</p>
-        <p id="check-result"></p>
+        <p id="status" role="status" aria-live="polite">Camera is off</p>
+        <p id="check-result" role="status" aria-live="polite"></p>
 
         <section class="steps">
           <h2>How to use</h2>
