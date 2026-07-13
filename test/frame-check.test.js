@@ -3,6 +3,7 @@ import { once } from 'node:events'
 import test from 'node:test'
 
 import {
+  createRateLimiter,
   frameCheckLimits,
   requestFrameCheck,
   validateFrameCheckBody,
@@ -91,6 +92,23 @@ test('validateFrameCheckBody rejects non-object request bodies', async (t) => {
       )
     })
   }
+})
+
+test('createRateLimiter limits each client for the configured window', () => {
+  let currentTime = 1_000
+  const rateLimiter = createRateLimiter({
+    limit: 2,
+    windowMs: 10_000,
+    now: () => currentTime,
+  })
+
+  assert.equal(rateLimiter('first-client'), 0)
+  assert.equal(rateLimiter('first-client'), 0)
+  assert.equal(rateLimiter('second-client'), 0)
+  assert.equal(rateLimiter('first-client'), 10)
+
+  currentTime += 10_000
+  assert.equal(rateLimiter('first-client'), 0)
 })
 
 test('validateFrameCheckBody requires an array containing exactly six images', async (t) => {
@@ -542,6 +560,45 @@ test('createApp handles method, JSON, and image errors without taking down later
     assert.equal(successResponse.headers.get('cache-control'), 'no-store')
     assert.deepEqual(await successResponse.json(), {
       message: 'Frame passes integration check.',
+    })
+    assert.equal(providerCalls, 1)
+  } finally {
+    await server.close()
+  }
+})
+
+test('createApp rate limits frame checks before calling the AI provider', async () => {
+  let providerCalls = 0
+  const app = await createApp({
+    mode: 'production',
+    frameCheckOptions: {
+      apiKey: 'integration-secret',
+      rateLimiter: createRateLimiter({ limit: 1, windowMs: 60_000 }),
+      fetchImpl: async () => {
+        providerCalls += 1
+        return providerResponse(200, JSON.stringify({
+          choices: [{ message: { content: 'VERDICT-PASS: Clean.' } }],
+        }))
+      },
+    },
+  })
+  const server = await listen(app)
+  const requestOptions = {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ images: validImages() }),
+  }
+
+  try {
+    const firstResponse = await fetch(`${server.baseUrl}/api/check-frame`, requestOptions)
+    assert.equal(firstResponse.status, 200)
+
+    const limitedResponse = await fetch(`${server.baseUrl}/api/check-frame`, requestOptions)
+    assert.equal(limitedResponse.status, 429)
+    assert.equal(limitedResponse.headers.get('retry-after'), '60')
+    assert.deepEqual(await limitedResponse.json(), {
+      error: 'Too many frame checks. Please wait before trying again.',
+      code: 'FRAME_CHECK_RATE_LIMITED',
     })
     assert.equal(providerCalls, 1)
   } finally {
